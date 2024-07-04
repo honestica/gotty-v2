@@ -1,23 +1,61 @@
-version: 2
+version: 2.1
 jobs:
   build:
     docker:
-      - image: circleci/python:3
+      - image: cimg/python:3.12
     steps:
       - checkout
       - setup_remote_docker:
           docker_layer_caching: true
-          version: 20.10.14
+      - run:
+          name: Build Gotty AMD64 Image
+          command: |
+            DOCKER_TAG=$CIRCLE_BRANCH-$CIRCLE_BUILD_NUM
+            docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
+            docker build -t honestica/gotty-v2:${DOCKER_TAG}-amd64 .
+            docker push honestica/gotty-v2:${DOCKER_TAG}-amd64
+  build-arm:
+    resource_class: arm.medium
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          name: Build Gotty ARM Image
+          command: |
+            DOCKER_TAG=$CIRCLE_BRANCH-$CIRCLE_BUILD_NUM
+            docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
+            docker build -t honestica/gotty-v2:${DOCKER_TAG}-arm .
+            docker push honestica/gotty-v2:${DOCKER_TAG}-arm
+  consolidate-image:
+    docker:
+      - image: cimg/python:3.12
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
       - run:
           name: Build Gotty Image
           command: |
             DOCKER_TAG=$CIRCLE_BRANCH-$CIRCLE_BUILD_NUM
             docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD
-            docker build -t honestica/gotty-v2:$DOCKER_TAG .
-            docker push honestica/gotty-v2:$DOCKER_TAG
+            docker manifest create honestica/gotty-v2:${DOCKER_TAG} \
+              --amend honestica/gotty-v2:${DOCKER_TAG}-amd64 \
+              --amend honestica/gotty-v2:${DOCKER_TAG}-arm
+            docker manifest push honestica/gotty-v2:${DOCKER_TAG}
+            echo "Docker manifest honestica/gotty-v2:${DOCKER_TAG} created"
 workflows:
   version: 2
   build:
     jobs:
       - build:
           context: org-global
+      - build-arm:
+          context: org-global
+      - consolidate-image:
+          context: org-global
+          requires:
+            - build
+            - build-arm
